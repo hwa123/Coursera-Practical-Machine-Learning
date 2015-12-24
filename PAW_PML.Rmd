@@ -1,7 +1,8 @@
 ---
 title: "Practical Machine Learning: Prediction Assignment Writeup"
 output: 
-  html_document
+  html_document:
+    keep_md: true
 ---
 Created by H.Wang on December 23, 2015
 
