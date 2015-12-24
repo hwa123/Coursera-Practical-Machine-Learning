@@ -1,0 +1,100 @@
+---
+title: "Practical Machine Learning: Prediction Assignment Writeup"
+output: 
+  html_document
+---
+Created by H.Wang on December 23, 2015
+
+## Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project I will use data from accelerometers on the belt, forearm, and dumbell of 6 participants, who were asked to perform barbell lifts correctly and incorrectly in 5 different ways, to predict how good they did the exercise. 
+
+## Initialization 
+```{r, cache = TRUE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(corrplot)
+
+```
+
+## Data Analysis 
+```{r, cache = TRUE}
+#Set Up Directory
+setwd("~/R/Coursera/Practical Machine Learning")
+
+train_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+#Download Raw Data
+if (!file.exists("./raw_data")){
+  dir.create("./raw_data")
+}
+if (!file.exists("./raw_data/pml-training.csv")){
+  download.file(train_url, destfile = "./raw_data/pml-training.csv", method = "libcurl")
+}
+if (!file.exists("./raw_data/pml-testing.csv")){
+  download.file(test_url, destfile = "./raw_data/pml-testing.csv", method = "libcurl")
+}
+
+#Getting and Cleaning Data
+traindata <- read.csv("./raw_data/pml-training.csv")
+testdata <- read.csv("./raw_data/pml-testing.csv")
+
+traindata <- traindata[, colSums(is.na(traindata)) == 0] # remove NA columns
+testdata <- testdata[, colSums(is.na(testdata)) == 0] # remove NA columns
+
+traindata <- traindata[,!grepl("^X|timestamp|window", names(traindata))] # remove unnecessary columns
+classe <- traindata$classe # keep classe column 
+traindata <- traindata[, sapply(traindata, is.numeric)]
+traindata$classe <- classe
+testdata <- testdata[,!grepl("^X|timestamp|window", names(testdata))] # remove unnecessary columns
+testdata <- testdata[, sapply(testdata, is.numeric)]
+```
+After data cleanse, the training data remains with 19622 obs. of 53 variables and testing data remains with 20 obs. of 53 variables. The only difference is the last column, in training data set it's `classe` while in testing data set it's `problem_id`.
+
+## Data Slice
+The purpose here is to split training data into two part, one is validation data set (30%) the other is pure training data set (70%). The validation part will be used to conduct cross validation in following steps.
+```{r,cache = TRUE}
+set.seed(19622)
+p_traindata <- createDataPartition(traindata$classe, p = 0.70, list = F) #partitioned based on classe types 
+traindata_pur <- traindata[p_traindata, ] 
+traindata_val <- traindata[-p_traindata, ]
+```
+
+## Data Modeling
+The predictive model for activity recognition is using **RandomForest** algorithm because it will select important variables and correlate covariates & outliers automatically. I will use **5 fold Cross Validation** when applying the algorithm. 
+```{r, cache = TRUE}
+controlRf <- trainControl(method = "cv",5) # 5 fold cross validation 
+modelRf <- train(classe ~ ., data = traindata_pur, method = "rf", trControl = controlRf, ntree = 250) 
+modelRf
+
+# evaluate the performance of the model on the validation data set
+predictRf <- predict(modelRf, traindata_val)
+confusionMatrix(traindata_val$classe, predictRf)
+postResample(predictRf, traindata_val$classe) # estimated accuracy & kappa of the model,should be same as estimated accuracy in confusion matrix
+accuracy = as.numeric(postResample(predictRf, traindata_val$classe)[1]) # estimated accuracy
+error <- 1 - accuracy # estimated out-of-sample error
+```
+The estimated accuracy of the model is `r accuracy` and the estimated out-of-sampel error is `r error`
+
+## Testing Data Prediction
+Apply the same Model to testing data set, first we need to strip off `problem_id` column as it is irrelevant to the analysis. 
+```{r, cache = TRUE}
+predictRf_testing <- predict(modelRf, testdata[,-length(names(testdata))])
+predictRf_testing
+```
+
+
+## Appendix: Figures
+1. Correlation Matrix Plot (Training Data Set)
+```{r cache = TRUE, fig.width = 10, fig.height = 10}
+corr <- cor(traindata[, -length(names(traindata))])
+corrplot(corr, method = "color")
+```
+
+2. Decision Tree Graph (Training Data Set)
+```{r cache = TRUE, fig.width = 10, fig.height = 10}
+treemodel <- rpart(classe ~ ., data = traindata, method = "class")
+prp(treemodel)
+```
